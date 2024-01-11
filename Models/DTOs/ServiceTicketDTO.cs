@@ -16,5 +16,5 @@ public CustomerDTO? Customer { get; set; }
 
 public EmployeeDTO? Employee { get; set; }
 
-public DateTime DateCompleted { get; set; }
+public DateTime? DateCompleted { get; set; }
 }

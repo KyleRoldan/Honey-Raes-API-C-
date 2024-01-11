@@ -1,7 +1,9 @@
+using Npgsql;
 using System.Text.Json.Serialization;
 using HoneyRaesAPI.Models;
 using HoneyRaesAPI.Models.DTOs;
 using Microsoft.AspNetCore.Http.Json;
+var connectionString = "Host=localhost;Port=5433;Username=postgres;Password=C00kies!;Database=HoneyRaes";
 
 
 
@@ -110,6 +112,7 @@ List<ServiceTicket> serviceTickets = new List<ServiceTicket>
 // List<HoneyRaesAPI.Models.Employee> employees = new List<HoneyRaesAPI.Models.Employee> {};
 // List<HoneyRaesAPI.Models.ServiceTicket> serviceTickets = new List<HoneyRaesAPI.Models.ServiceTicket> {};
 
+//////DONT TOUCH THIS////////////////////////////////////////////////////////////////////////////////
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -136,6 +139,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
 // var summaries = new[]
 // {
 //     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
@@ -160,6 +166,8 @@ app.UseHttpsRedirection();
 //     return "hello";
 // });
 
+/////GET SERVICETICKETS////////////////////////////////////////////////////////////////////////////////////////
+
 app.MapGet("/servicetickets", () =>
 {
     return serviceTickets.Select(t => new ServiceTicketDTO
@@ -172,6 +180,9 @@ app.MapGet("/servicetickets", () =>
         DateCompleted = t.DateCompleted
     });
 });
+
+////GET SERVICE TICKETS BY ID///////////////////////////////////////////////////////////////////////////////////////
+
 
 app.MapGet("/servicetickets/{id}", (int id) =>
 {
@@ -209,43 +220,145 @@ app.MapGet("/servicetickets/{id}", (int id) =>
     });
 });
 
-// Endpoint to get all employees
+///////Endpoint to get all employees///////////////////////////////////////////////////////////////////////////////////////
+
 app.MapGet("/employees", () =>
 {
-    return employees.Select(e => new EmployeeDTO
+    // create an empty list of employees to add to. 
+    List<Employee> employees = new List<Employee>();
+    //make a connection to the PostgreSQL database using the connection string
+    using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+    //open the connection
+    connection.Open();
+    // create a sql command to send to the database
+    using NpgsqlCommand command = connection.CreateCommand();
+    command.CommandText = "SELECT * FROM Employee";
+    //send the command. 
+    using NpgsqlDataReader reader = command.ExecuteReader();
+    //read the results of the command row by row
+    while (reader.Read()) // reader.Read() returns a boolean, to say whether there is a row or not, it also advances down to that row if it's there. 
     {
-        Id = e.Id,
-        Name = e.Name,
-        Specialty = e.Specialty
-    });
+        //This code adds a new C# employee object with the data in the current row of the data reader 
+        employees.Add(new Employee
+        {
+            Id = reader.GetInt32(reader.GetOrdinal("Id")), //find what position the Id column is in, then get the integer stored at that position
+            Name = reader.GetString(reader.GetOrdinal("Name")),
+            Specialty = reader.GetString(reader.GetOrdinal("Specialty"))
+        });
+    }
+    //once all the rows have been read, send the list of employees back to the client as JSON
+    return employees;
 });
 
-// Endpoint to get an employee by id
+// Endpoint to get an employee by id/////////////////////////////////////////////////////////////////////////////////////
+
+/////////c# METHOD//////////////////////////
+// app.MapGet("/employees/{id}", (int id) =>
+// {
+//     Employee employee = employees.FirstOrDefault(e => e.Id == id);
+//     if (employee == null)
+//     {
+//         return Results.NotFound();
+//     }
+//     List<ServiceTicket> tickets = serviceTickets.Where(st => st.EmployeeId == id).ToList();
+//     return Results.Ok(new EmployeeDTO
+//     {
+//         Id = employee.Id,
+//         Name = employee.Name,
+//         Specialty = employee.Specialty,
+//         ServiceTickets = tickets.Select(t => new ServiceTicketDTO
+//         {
+//             Id = t.Id,
+//             CustomerId = t.CustomerId,
+//             EmployeeId = t.EmployeeId,
+//             Description = t.Description,
+//             Emergency = t.Emergency,
+//             DateCompleted = t.DateCompleted
+//         }).ToList()
+//     });
+// });
+
+// app.MapGet("/employees/{id}", (int id) =>
+// {
+//     Employee employee = null;
+//     using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+//     connection.Open();
+//     using NpgsqlCommand command = connection.CreateCommand();
+//     command.CommandText = "SELECT * FROM Employee WHERE Id = @id";
+//     // use command parameters to add the specific Id we are looking for to the query
+//     command.Parameters.AddWithValue("@id", id);
+//     using NpgsqlDataReader reader = command.ExecuteReader();
+//     // We are only expecting one row back, so we don't need a loop!
+//     if (reader.Read())
+//     {
+//         employee = new Employee
+//         {
+//             Id = reader.GetInt32(reader.GetOrdinal("Id")),
+//             Name = reader.GetString(reader.GetOrdinal("Name")),
+//             Specialty = reader.GetString(reader.GetOrdinal("Specialty"))
+//         };
+//     }
+//     return employee;
+// });
+
 app.MapGet("/employees/{id}", (int id) =>
 {
-    Employee employee = employees.FirstOrDefault(e => e.Id == id);
-    if (employee == null)
+    Employee employee = null;
+    using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+    connection.Open();
+    using NpgsqlCommand command = connection.CreateCommand();
+    command.CommandText = @"
+        SELECT 
+            e.Id,
+            e.Name, 
+            e.Specialty, 
+            st.Id AS serviceTicketId, 
+            st.CustomerId,
+            st.Description,
+            st.Emergency,
+            st.DateCompleted 
+        FROM Employee e
+        LEFT JOIN ServiceTicket st ON st.EmployeeId = e.Id
+        WHERE e.Id = @id";
+    // use command parameters to add the specific Id we are looking for to the query
+    command.Parameters.AddWithValue("@id", id);
+    using NpgsqlDataReader reader = command.ExecuteReader();
+    // We are only expecting one row back, so we don't need a loop!
+    while (reader.Read())
     {
-        return Results.NotFound();
-    }
-    List<ServiceTicket> tickets = serviceTickets.Where(st => st.EmployeeId == id).ToList();
-    return Results.Ok(new EmployeeDTO
-    {
-        Id = employee.Id,
-        Name = employee.Name,
-        Specialty = employee.Specialty,
-        ServiceTickets = tickets.Select(t => new ServiceTicketDTO
+        if (employee == null)
         {
-            Id = t.Id,
-            CustomerId = t.CustomerId,
-            EmployeeId = t.EmployeeId,
-            Description = t.Description,
-            Emergency = t.Emergency,
-            DateCompleted = t.DateCompleted
-        }).ToList()
-    });
+            employee = new Employee
+            {
+                Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                Name = reader.GetString(reader.GetOrdinal("Name")),
+                Specialty = reader.GetString(reader.GetOrdinal("Specialty")),
+                ServiceTickets = new List<ServiceTicket>() //empty List to add service tickets to
+            };
+        }
+        // reader.IsDBNull checks if a column in a particular position is null
+        if (!reader.IsDBNull(reader.GetOrdinal("serviceTicketId")))
+        {
+            employee.ServiceTickets.Add(new ServiceTicket
+            {
+                Id = reader.GetInt32(reader.GetOrdinal("serviceTicketId")),
+                CustomerId = reader.GetInt32(reader.GetOrdinal("CustomerId")),
+                //we don't need to get this from the database, we already know it
+                EmployeeId = id,
+                Description = reader.GetString(reader.GetOrdinal("Description")),
+                Emergency = reader.GetBoolean(reader.GetOrdinal("Emergency")),
+                // Npgsql can't automatically convert NULL in the database to C# null, so we have to check whether it's null before trying to get it
+                DateCompleted = reader.IsDBNull(reader.GetOrdinal("DateCompleted")) ? null : reader.GetDateTime(reader.GetOrdinal("DateCompleted"))
+            });
+        }
+    }
+     // Return 404 if the employee is never set (meaning, that reader.Read() immediately returned false because the id did not match an employee)
+    // otherwise 200 with the employee data
+    return employee == null ? Results.NotFound() : Results.Ok(employee);
 });
-// Endpoint to get all customers
+
+// Endpoint to get all customers////////////////////////////////////////////////////////////////////////////////////
+
 app.MapGet("/customers", () =>
 {
     return customers.Select(c => new CustomerDTO
@@ -256,7 +369,8 @@ app.MapGet("/customers", () =>
     });
 });
 
-// Endpoint to get a customer by id
+// Endpoint to get a customer by id///////////////////////////////////////////////////////////////////////////////////
+
 app.MapGet("/customers/{id}", (int id) =>
 {
     Customer customer = customers.FirstOrDefault(cust => cust.Id == id);
@@ -282,6 +396,7 @@ List<ServiceTicket> tickets = serviceTickets.Where(st => st.CustomerId == id).To
         }).ToList()
     });
 });
+////////CREATE A NEW SERVICE TICKET///////////////////////////////////////////////////////////////////////////////////
 
 app.MapPost("/servicetickets", (ServiceTicket serviceTicket) =>
 {
@@ -316,6 +431,8 @@ app.MapPost("/servicetickets", (ServiceTicket serviceTicket) =>
 
 });
 
+///////DELETE A SERVICETICKET///////////////////////////////////////////////////////////////////////////////
+
 app.MapDelete("/servicetickets/{id}", (int id) =>
 {
    // Assuming serviceTickets is a List<ServiceTicket>
@@ -336,6 +453,8 @@ app.MapDelete("/servicetickets/{id}", (int id) =>
     }
 
 });
+
+//////////UPDATE A SERVICETICKET///////////////////////////////////////////////////////////////////////////////
 
 app.MapPut("/servicetickets/{id}", (int id, ServiceTicket serviceTicket) =>
 {
@@ -359,6 +478,9 @@ app.MapPut("/servicetickets/{id}", (int id, ServiceTicket serviceTicket) =>
     return Results.NoContent();
 });
 
+/////MARK A SERVICE TICKET AS COMPLETE////////////////////////////////////////////////////////////////////////////////
+
+
 app.MapPost("/servicetickets/{id}/complete", (int id) =>
 {
     ServiceTicket ticketToComplete = serviceTickets.FirstOrDefault(st => st.Id == id);
@@ -377,6 +499,74 @@ app.MapPost("/servicetickets/{id}/complete", (int id) =>
 
 
 });
+
+///////////////CREATE AN EMPLOYEE//////////////////////////////////////////////////////////////////////////////////
+
+app.MapPost("/employees", (Employee employee) =>
+{
+    using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+    connection.Open();
+    using NpgsqlCommand command = connection.CreateCommand();
+    command.CommandText = @"
+        INSERT INTO Employee (Name, Specialty)
+        VALUES (@name, @specialty)
+        RETURNING Id
+    ";
+    command.Parameters.AddWithValue("@name", employee.Name);
+    command.Parameters.AddWithValue("@specialty", employee.Specialty);
+
+    //the database will return the new Id for the employee, add it to the C# object
+    employee.Id = (int)command.ExecuteScalar();// ExecuteScalar() returns the value of the first column of the first row.
+
+    return employee;
+});
+////////UPDATE AN EMPLOYEE//////////////////////////////////////////////////////////////////////////////////////////
+
+app.MapPut("/employees/{id}", (int id, Employee employee) =>
+{
+    if (id != employee.Id)
+    {
+        return Results.BadRequest();
+    }
+    using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+    connection.Open();
+    using NpgsqlCommand command = connection.CreateCommand();
+    command.CommandText = @"
+        UPDATE Employee 
+        SET Name = @name,
+            Specialty = @specialty
+        WHERE Id = @id
+    ";
+    command.Parameters.AddWithValue("@name", employee.Name);
+    command.Parameters.AddWithValue("@specialty", employee.Specialty);
+    command.Parameters.AddWithValue("@id", id);
+
+    command.ExecuteNonQuery();//ExecuteNonQuery is used for data changes when you do not need or expect
+    //  any data back from the database after the query. 
+    // In this case, as long as the query runs correctly, we do not need any information from the database.
+    return Results.NoContent();
+});
+
+
+/////DELETE AN EMPLOYEE///////////////////////////////////////////////////////////////////////////////////////
+
+app.MapDelete("/employees/{id}", (int id) =>
+{
+    using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+    connection.Open();
+    using NpgsqlCommand command = connection.CreateCommand();
+    command.CommandText = @"
+        DELETE FROM Employee WHERE Id=@id
+    ";
+    command.Parameters.AddWithValue("@id", id);
+    command.ExecuteNonQuery();
+    return Results.NoContent();
+});
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
